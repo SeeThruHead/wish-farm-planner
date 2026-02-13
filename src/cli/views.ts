@@ -111,33 +111,20 @@ const renderLegend = (wishes: readonly WishItem[]): string => {
 
 const paycheckRow = (pc: PaycheckAllocation): string => {
   const period = String(pc.period).padStart(3);
-  const take = ("$" + money(pc.takeHome)).padStart(11);
-  const exp = ("$" + money(pc.expensesPortion)).padStart(11);
-  const disc = ("$" + money(pc.discretionary)).padStart(11);
   const cats = pc.assignments.map(assignmentStr).join("  │  ");
-  return `  ${period}  ${take}  ${exp}  ${disc}  │  ${cats}`;
+  const noteStr = pc.notes.length > 0 ? `  ← ${pc.notes.join("; ")}` : "";
+  return `  ${period}  ${cats}${noteStr}`;
 };
 
 const paycheckHeader = (): string => {
-  const period = "#".padStart(3);
-  const take = "Take Home".padStart(11);
-  const exp = "Expenses".padStart(11);
-  const disc = "Discretion.".padStart(11);
-  return `  ${period}  ${take}  ${exp}  ${disc}  │  YNAB Categories`;
+  return `    #  Allocations`;
 };
 
 export const renderPaycheckTable = (plan: PaycheckPlan): string => {
   const header = paycheckHeader();
   const TW = Math.max(W, header.length + 30);
 
-  // Build rows with inline notes
-  const rowLines: string[] = [];
-  for (const pc of plan.paychecks) {
-    rowLines.push(paycheckRow(pc));
-    for (const note of pc.notes) {
-      rowLines.push(`         ↳ ${note}`);
-    }
-  }
+  const rowLines = plan.paychecks.map(paycheckRow);
 
   // Summary: when each item is funded
   const funded: string[] = [];

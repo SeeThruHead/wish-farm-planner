@@ -399,7 +399,7 @@ describe("allocatePaychecks", () => {
       pc.assignments.some((a) => a.category === "SeqItem" && a.funded),
     );
     expect(seqFundedPc).toBeDefined();
-    expect(seqFundedPc!.notes.some((n) => n.includes("SeqItem") && n.includes("TimedItem") && n.includes("no impact"))).toBe(true);
+    expect(seqFundedPc!.notes.some((n) => n.includes("SeqItem") && n.includes("prioritized") && n.includes("no deadline impact"))).toBe(true);
   });
 
   test("notes: timed item funded early shows overflow note", () => {
@@ -426,7 +426,7 @@ describe("allocatePaychecks", () => {
     const plan = allocatePaychecks(rows, 2000, items, 2);
 
     const hasDepNote = plan.paychecks.some((pc) =>
-      pc.notes.some((n) => n.includes("Second") && n.includes("deps met") && n.includes("First")),
+      pc.notes.some((n) => n.includes("Second") && n.includes("unlocked") && n.includes("First")),
     );
     expect(hasDepNote).toBe(true);
   });

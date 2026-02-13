@@ -298,7 +298,7 @@ export const allocatePaychecks = (
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
         const rate = fixedPerPaycheck.get(item.name)!;
-        notes.push(`${item.name}: locked at $${rate.toLocaleString("en-CA", { minimumFractionDigits: 2 })}/paycheck — not deferred for sequential items`);
+        notes.push(`${item.name} locked $${rate.toLocaleString("en-CA", { minimumFractionDigits: 2 })}/pay (non-deferrable)`);
       }
 
       const perPaycheck = fixedPerPaycheck.get(item.name)!;
@@ -310,6 +310,7 @@ export const allocatePaychecks = (
     // 2. Sequential items (if deps ready)
     let seqSpent = 0;
     let idx = currentSeqIdx;
+    const seqFundedThisPay: string[] = [];
     while (remaining > 0.005 && idx < sequentialItems.length) {
       const item = sequentialItems[idx];
 
@@ -329,14 +330,14 @@ export const allocatePaychecks = (
       const wouldSpend = round2(Math.min(remaining, needed));
 
       if (!timedFeasible(rowIdx, seqSpent + wouldSpend)) {
-        notes.push(`${item.name}: paused — timed items need the budget to hit their deadlines`);
+        notes.push(`${item.name} paused — timed deadlines need budget`);
         break;
       }
 
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
         if (item.after && item.after.length > 0) {
-          notes.push(`${item.name}: deps met (${item.after.join(", ")}), now funding`);
+          notes.push(`${item.name} unlocked (${item.after.join(", ")} done)`);
         }
       }
 
@@ -345,15 +346,16 @@ export const allocatePaychecks = (
       seqSpent += spent;
 
       if (done.has(item.name)) {
-        // Note why this was prioritized over timed items
-        const deferredTimed = deferrableTimedItems.filter((t) => !done.has(t.name) && depsReady(t));
-        if (deferredTimed.length > 0) {
-          const names = deferredTimed.map((t) => t.name);
-          notes.push(`${item.name}: funded before ${names.join(", ")} — no impact on their deadlines`);
-        }
-
+        seqFundedThisPay.push(item.name);
         idx++;
         if (idx > currentSeqIdx) currentSeqIdx = idx;
+      }
+    }
+    // Emit one combined note for all sequential items funded this paycheck
+    if (seqFundedThisPay.length > 0) {
+      const deferredTimed = deferrableTimedItems.filter((t) => !done.has(t.name) && depsReady(t));
+      if (deferredTimed.length > 0) {
+        notes.push(`${seqFundedThisPay.join(", ")} prioritized — no deadline impact`);
       }
     }
 
@@ -366,16 +368,15 @@ export const allocatePaychecks = (
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
         if (item.after && item.after.length > 0) {
-          notes.push(`${item.name}: deps met (${item.after.join(", ")}), now funding`);
+          notes.push(`${item.name} unlocked (${item.after.join(", ")} done)`);
         }
         const deadline = deadlines.get(item.name)!;
         const behindBy = round2(item.cost * (rowIdx + 1) / deadline - saved.get(item.name)!);
         if (behindBy > 0.01) {
-          notes.push(`${item.name}: deferred while sequential items were funded — catching up now`);
+          notes.push(`${item.name} deferred, now catching up`);
         }
       }
 
-      const beforeSaved = saved.get(item.name)!;
       const spent = fundItem(item, remaining, assignments);
       remaining = round2(remaining - spent);
 
@@ -383,7 +384,7 @@ export const allocatePaychecks = (
         const deadline = deadlines.get(item.name)!;
         const earlyBy = deadline - (rowIdx + 1);
         if (earlyBy > 0) {
-          notes.push(`${item.name}: funded ${earlyBy} paycheck${earlyBy > 1 ? "s" : ""} early — overflow from completed items`);
+          notes.push(`${item.name} ${earlyBy}pay early (overflow)`);
         }
       }
     }
@@ -401,7 +402,7 @@ export const allocatePaychecks = (
         const deadline = deadlines.get(item.name)!;
         const earlyBy = deadline - (rowIdx + 1);
         if (earlyBy > 0) {
-          notes.push(`${item.name}: funded ${earlyBy} paycheck${earlyBy > 1 ? "s" : ""} early — overflow from completed items`);
+          notes.push(`${item.name} ${earlyBy}pay early (overflow)`);
         }
       }
     }
