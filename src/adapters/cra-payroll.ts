@@ -4,7 +4,7 @@
  */
 import { execFile } from "node:child_process";
 import { Effect, pipe } from "effect";
-import * as Schema from "@effect/schema/Schema";
+import { Schema } from "effect";
 import {
   CraMonthlyOutput,
   CraTableOutput,

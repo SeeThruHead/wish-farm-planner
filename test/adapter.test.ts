@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import * as Schema from "@effect/schema/Schema";
+import { Schema } from "effect";
 import { CraMonthlyOutput } from "../src/domain/types";
 
 describe("CRA payroll adapter schema", () => {

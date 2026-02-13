@@ -3,7 +3,7 @@
  * Reads wish-farm config from ~/.wish-farm.json or ./wish-farm.json.
  */
 import { Effect, pipe } from "effect";
-import * as Schema from "@effect/schema/Schema";
+import { Schema } from "effect";
 import { WishFarmConfigSchema, type WishFarmConfig } from "../domain/types";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";

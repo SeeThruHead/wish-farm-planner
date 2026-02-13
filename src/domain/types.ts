@@ -1,7 +1,7 @@
 /**
  * Core domain types for the wish farm planner.
  */
-import * as Schema from "@effect/schema/Schema";
+import { Schema } from "effect";
 
 // ── CRA Payroll JSON output (monthly mode) ──────────────────
 
