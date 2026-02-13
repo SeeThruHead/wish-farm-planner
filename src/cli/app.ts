@@ -54,7 +54,7 @@ const getStdinPromise = (): Promise<string | undefined> => {
   }
   _stdinPromise = new Promise<string | undefined>((resolve, reject) => {
     const chunks: Buffer[] = [];
-    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
     process.stdin.on("end", () => {
       const text = Buffer.concat(chunks).toString("utf-8").trim();
       resolve(text.length > 0 ? text : undefined);
