@@ -1,6 +1,6 @@
 {
   "name": "@seethruhead/wish-farm-planner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plan your discretionary spending with a YNAB-style wish farm. Uses CRA payroll data to determine true disposable income.",
   "type": "module",
   "bin": {
