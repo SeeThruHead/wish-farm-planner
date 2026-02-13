@@ -383,14 +383,6 @@ export const allocatePaychecks = (
 
       const spent = fundItem(item, remaining, assignments);
       remaining = round2(remaining - spent);
-
-      if (done.has(item.name)) {
-        const deadline = deadlines.get(item.name)!;
-        const earlyBy = deadline - (rowIdx + 1);
-        if (earlyBy > 0) {
-          addFlag(item.name, `⏫+${earlyBy}`);
-        }
-      }
     }
 
     // 4. Overflow to non-deferrable timed items (accelerate beyond fixed rate)
@@ -401,14 +393,6 @@ export const allocatePaychecks = (
 
       const spent = fundItem(item, remaining, assignments);
       remaining = round2(remaining - spent);
-
-      if (done.has(item.name)) {
-        const deadline = deadlines.get(item.name)!;
-        const earlyBy = deadline - (rowIdx + 1);
-        if (earlyBy > 0) {
-          addFlag(item.name, `⏫+${earlyBy}`);
-        }
-      }
     }
 
     // 5. True leftover

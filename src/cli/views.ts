@@ -128,7 +128,6 @@ const iconLegend = (): string => {
     ["⚡", "prioritized over timed — no deadline impact"],
     ["🔓", "dependency met, now active"],
     ["⏩", "was deferred, catching up"],
-    ["⏫", "funded early via overflow"],
     ["🔒", "locked rate (non-deferrable)"],
     ["⏸", "paused — timed deadline needs budget"],
   );

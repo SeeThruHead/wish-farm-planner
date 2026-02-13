@@ -400,7 +400,7 @@ describe("allocatePaychecks", () => {
     expect(seqAssignment!.flags).toContain("⚡");
   });
 
-  test("flags: timed item funded early gets ⏫", () => {
+  test("flags: timed item funded early has no redundant flag", () => {
     const rows = makeRows(24);
     const items: WishItem[] = [
       { name: "SeqItem", cost: 500, priority: 1 },
@@ -408,10 +408,11 @@ describe("allocatePaychecks", () => {
     ];
     const plan = allocatePaychecks(rows, 2000, items, 2);
 
+    // Timed item funded early — the ✓ and slot overflow already show this
     const timedAssignment = plan.paychecks.flatMap((pc) => pc.assignments)
       .find((a) => a.category === "TimedItem" && a.funded);
     expect(timedAssignment).toBeDefined();
-    expect(timedAssignment!.flags).toContain("⏫");
+    expect(timedAssignment!.flags).not.toContain("⏫");
   });
 
   test("flags: after dep gets 🔓", () => {
