@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "dev": "bun run src/main.ts",
-    "build": "bun build src/main.ts --outfile dist/wish-farm-planner.js --target=node",
+    "build": "bun build src/main.ts --outfile dist/wish-farm-planner.js --target=node --minify",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",

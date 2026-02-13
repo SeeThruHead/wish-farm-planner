@@ -2,6 +2,7 @@
  * Adapter for the @seethruhead/cra-payroll CLI.
  * Shells out to `cra-payroll --json` and parses the structured output.
  */
+import { execFile } from "node:child_process";
 import { Effect, pipe } from "effect";
 import * as Schema from "@effect/schema/Schema";
 import {
@@ -44,19 +45,16 @@ const buildBaseArgs = (opts: CraPayrollOptions): string[] => {
 
 const execCraPayroll = (args: readonly string[]): Effect.Effect<string, CraPayrollError> =>
   Effect.tryPromise({
-    try: async () => {
-      const proc = Bun.spawn(["cra-payroll", ...args], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-      if (exitCode !== 0) {
-        throw new Error(`cra-payroll exited with code ${exitCode}: ${stderr}`);
-      }
-      return stdout.trim();
-    },
+    try: () =>
+      new Promise<string>((resolve, reject) => {
+        execFile("cra-payroll", [...args], (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(`cra-payroll failed: ${stderr || error.message}`));
+          } else {
+            resolve(stdout.trim());
+          }
+        });
+      }),
     catch: (e) => new CraPayrollError(e instanceof Error ? e.message : String(e)),
   });
 
