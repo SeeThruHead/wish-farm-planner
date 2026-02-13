@@ -173,8 +173,25 @@ export const renderPaycheckTable = (plan: PaycheckPlan): string => {
     }
   }
 
+  // Year-end summary
+  const totalSpent = plan.wishes
+    .filter((w) => seen.has(w.name))
+    .reduce((sum, w) => sum + w.cost, 0);
+  const totalDiscretionary = plan.paychecks.reduce((sum, pc) => sum + pc.discretionary, 0);
+  const remaining = totalDiscretionary - totalSpent;
+
+  const summaryTable = new Table({ style: { head: [], border: [] } });
+  summaryTable.push(
+    [{ colSpan: 2, content: "Year-End Summary", hAlign: "center" }],
+    ["Total Discretionary", `$${money(totalDiscretionary)}`],
+    ["Total Wish Spending", `-$${money(totalSpent)}`],
+    ["Remaining Cash", `$${money(remaining)}`],
+  );
+
   return [
     renderIncomeSummary(plan.income),
+    "",
+    summaryTable.toString(),
     "",
     renderLegend(plan.wishes),
     "",
