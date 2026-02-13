@@ -5,6 +5,7 @@
 import type {
   WishFarmPlan,
   WishPlan,
+  WishItem,
   IncomeProfile,
   PaycheckPlan,
   PaycheckAllocation,
@@ -84,6 +85,24 @@ const assignmentStr = (a: CategoryAssignment): string => {
   return `$${money(a.amount)} → ${a.category}${flag}`;
 };
 
+/** Render a legend showing which items are timed vs sequential. */
+const renderLegend = (wishes: readonly WishItem[]): string => {
+  const timed = wishes.filter((w) => w.months !== undefined);
+  const sequential = wishes.filter((w) => w.months === undefined);
+  const lines: string[] = [];
+  if (timed.length > 0) {
+    lines.push("  Timed (fixed monthly from each paycheck):");
+    for (const w of timed)
+      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}  over ${w.months} months  ($${money(w.cost / w.months!).padStart(8)}/mo)`);
+  }
+  if (sequential.length > 0) {
+    lines.push("  Sequential (funded in order from remaining):");
+    for (const w of sequential)
+      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}`);
+  }
+  return lines.join("\n");
+};
+
 const paycheckRow = (pc: PaycheckAllocation): string => {
   const period = String(pc.period).padStart(3);
   const take = ("$" + money(pc.takeHome)).padStart(11);
@@ -122,9 +141,16 @@ export const renderPaycheckTable = (plan: PaycheckPlan): string => {
     .filter((w) => !seen.has(w.name))
     .map((w) => `  ✗ ${w.name.padEnd(24)} not funded this year`);
 
+  const legend = renderLegend(plan.wishes);
+
   return `${renderIncomeSummary(plan.income)}
 
-Paycheck Allocation (Sequential)
+Allocation Strategy
+${line("─", W)}
+${legend}
+${line("─", W)}
+
+Paycheck Allocation
 ${line("═", TW)}
 ${header}
 ${line("─", TW)}
@@ -157,7 +183,11 @@ export const summaryPlanToJson = (plan: WishFarmPlan): object => ({
 
 export const paycheckPlanToJson = (plan: PaycheckPlan): object => ({
   income: plan.income,
-  wishes: plan.wishes.map((w) => ({ name: w.name, cost: w.cost, priority: w.priority })),
+  wishes: plan.wishes.map((w) => ({
+    name: w.name, cost: w.cost, priority: w.priority,
+    ...(w.months !== undefined ? { months: w.months } : {}),
+    strategy: w.months !== undefined ? "timed" : "sequential",
+  })),
   paychecks: plan.paychecks.map((pc) => ({
     period: pc.period,
     takeHome: pc.takeHome,

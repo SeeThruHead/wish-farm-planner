@@ -77,7 +77,8 @@ export type CraTableOutput = typeof CraTableOutput.Type;
 export interface WishItem {
   readonly name: string;
   readonly cost: number;
-  readonly priority: number; // 1 = highest
+  readonly priority: number;        // 1 = highest
+  readonly months?: number;         // if set, spread over this many months (timed); if blank, sequential
 }
 
 export interface IncomeProfile {
@@ -130,6 +131,7 @@ export const WishItemSchema = Schema.Struct({
   name: Schema.String,
   cost: Schema.Number,
   priority: Schema.Number,
+  months: Schema.optional(Schema.Number),
 });
 
 export const WishFarmConfigSchema = Schema.Struct({

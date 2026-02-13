@@ -297,6 +297,45 @@ describe("allocatePaychecks", () => {
     const plan = allocatePaychecks(rows, 6000, ITEMS, 2);
     expect(plan.paychecks[0].expensesPortion).toBe(3000);
   });
+
+  test("overflow from sequential accelerates timed items", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "Big Timed", cost: 20000, priority: 1, months: 12 },
+      { name: "Small Sequential", cost: 100, priority: 2 },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    // First paycheck: timed gets its slice, sequential gets funded, overflow goes to timed
+    const first = plan.paychecks[0];
+    const timedAssignment = first.assignments.find((a) => a.category === "Big Timed");
+    const seqAssignment = first.assignments.find((a) => a.category === "Small Sequential");
+
+    expect(seqAssignment).toBeTruthy();
+    expect(seqAssignment!.funded).toBe(true);
+
+    // Timed item should have gotten MORE than its base allocation (overflow)
+    const basePerPaycheck = 20000 / (12 * 2); // ~833.33
+    expect(timedAssignment!.amount).toBeGreaterThan(basePerPaycheck);
+  });
+
+  test("no Unallocated while timed items remain unfunded", () => {
+    const rows = makeRows(24);
+    // Cost high enough that it won't be fully funded by overflow alone
+    const items: WishItem[] = [
+      { name: "Timed Only", cost: 100000, priority: 1, months: 12 },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    for (const pc of plan.paychecks) {
+      const timedAssignment = pc.assignments.find((a) => a.category === "Timed Only");
+      const hasUnallocated = pc.assignments.find((a) => a.category === "Unallocated");
+      // If timed item is still unfunded, there should be no Unallocated
+      if (timedAssignment && !timedAssignment.funded) {
+        expect(hasUnallocated).toBeUndefined();
+      }
+    }
+  });
 });
 
 // ── periodsPerMonth ─────────────────────────────────────

@@ -47,6 +47,7 @@ const configToWishItems = (config: WishFarmConfig): readonly WishItem[] =>
     name: w.name,
     cost: w.cost,
     priority: w.priority,
+    ...(w.months !== undefined ? { months: w.months } : {}),
   }));
 
 /** Summary plan (monthly allocation view). */
