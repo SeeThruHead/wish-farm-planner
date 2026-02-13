@@ -42,19 +42,25 @@ const periodsOption = Options.integer("periods").pipe(
 
 // ── Read stdin if piped ─────────────────────────────────
 
-const readStdin = (): Effect.Effect<string | undefined> =>
-  Effect.tryPromise({
-    try: async () => {
-      if (process.stdin.isTTY) return undefined;
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) {
-        chunks.push(chunk);
-      }
-      const text = Buffer.concat(chunks).toString("utf-8").trim();
-      return text.length > 0 ? text : undefined;
-    },
-    catch: () => undefined as any,
+const readStdin = (): Effect.Effect<string | undefined> => {
+  // Only attempt to read if stdin is piped (not a terminal)
+  if (process.stdin.isTTY) return Effect.succeed(undefined);
+
+  return Effect.tryPromise({
+    try: () =>
+      new Promise<string | undefined>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        process.stdin.on("data", (chunk) => chunks.push(chunk));
+        process.stdin.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf-8").trim();
+          resolve(text.length > 0 ? text : undefined);
+        });
+        process.stdin.on("error", reject);
+        process.stdin.resume();
+      }),
+    catch: (e) => new Error(`Failed to read stdin: ${e}`),
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+};
 
 // ── Plan Command (monthly summary) ──────────────────────
 
