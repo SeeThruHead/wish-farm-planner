@@ -41,26 +41,38 @@ const periodsOption = Options.integer("periods").pipe(
 );
 
 // ── Read stdin if piped ─────────────────────────────────
+// Read stdin eagerly BEFORE Effect runs, so the process stays alive
+// while waiting for slow upstream commands (e.g. cra-payroll + Puppeteer).
 
-const readStdin = (): Effect.Effect<string | undefined> => {
-  // Only attempt to read if stdin is piped (not a terminal)
-  if (process.stdin.isTTY) return Effect.succeed(undefined);
+let _stdinPromise: Promise<string | undefined> | undefined;
 
-  return Effect.tryPromise({
-    try: () =>
-      new Promise<string | undefined>((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        process.stdin.on("data", (chunk) => chunks.push(chunk));
-        process.stdin.on("end", () => {
-          const text = Buffer.concat(chunks).toString("utf-8").trim();
-          resolve(text.length > 0 ? text : undefined);
-        });
-        process.stdin.on("error", reject);
-        process.stdin.resume();
-      }),
-    catch: (e) => new Error(`Failed to read stdin: ${e}`),
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+const getStdinPromise = (): Promise<string | undefined> => {
+  if (_stdinPromise) return _stdinPromise;
+  if (process.stdin.isTTY) {
+    _stdinPromise = Promise.resolve(undefined);
+    return _stdinPromise;
+  }
+  _stdinPromise = new Promise<string | undefined>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("end", () => {
+      const text = Buffer.concat(chunks).toString("utf-8").trim();
+      resolve(text.length > 0 ? text : undefined);
+    });
+    process.stdin.on("error", reject);
+    process.stdin.resume();
+  });
+  return _stdinPromise;
 };
+
+// Kick off stdin reading immediately at module load
+getStdinPromise();
+
+const readStdin = (): Effect.Effect<string | undefined> =>
+  Effect.tryPromise({
+    try: () => getStdinPromise(),
+    catch: () => undefined as any,
+  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
 // ── Plan Command (monthly summary) ──────────────────────
 
