@@ -6,11 +6,10 @@
  *   2. Piped stdin (cra-payroll --json --table | wish-farm-planner)
  *   3. Config file (craPayrollArgs or discretionaryPerPeriod)
  */
-import { Effect, pipe } from "effect";
+import { Effect, pipe, Data } from "effect";
 import type { WishFarmConfig, WishItem, WishFarmPlan, PaycheckPlan, CraPayPeriodRow } from "../domain/types";
 import {
-  buildIncomeProfile,
-  buildIncomeProfileStatic,
+  buildIncomeProfileFromRows,
   buildStaticRows,
   allocateSequential,
   allocateProportional,
@@ -18,12 +17,12 @@ import {
   periodsPerMonth,
 } from "../domain/planner";
 import {
-  getMonthlyAverages,
   getPayPeriodRows,
   type CraPayrollOptions,
   type CraPayrollError,
+  type CraPayrollService,
 } from "../adapters/cra-payroll";
-import { loadConfig, type ConfigError } from "./config";
+import { loadConfig, type ConfigError, type ConfigService } from "./config";
 
 export type AllocationStrategy = "sequential" | "proportional";
 
@@ -61,24 +60,32 @@ const configToWishItems = (config: WishFarmConfig): readonly WishItem[] =>
     ...(w.after !== undefined && w.after.length > 0 ? { after: w.after } : {}),
   }));
 
-/** Try to parse piped stdin as cra-payroll --json --table output. */
-const parseStdinRows = (stdin: string): CraPayPeriodRow[] | null => {
-  try {
-    const parsed = JSON.parse(stdin);
-    if (parsed.mode === "table" && parsed.yearly?.rows) {
-      return parsed.yearly.rows as CraPayPeriodRow[];
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
+export class StdinParseError extends Data.TaggedError("StdinParseError")<{
+  readonly message: string;
+}> {}
+
+/** Parse piped stdin as cra-payroll --json --table output. */
+const parseStdinRows = (stdin: string): Effect.Effect<readonly CraPayPeriodRow[], StdinParseError> =>
+  Effect.try({
+    try: () => {
+      const parsed = JSON.parse(stdin);
+      if (parsed.mode === "table" && parsed.yearly?.rows) {
+        return parsed.yearly.rows as CraPayPeriodRow[];
+      }
+      throw new Error(`Expected { mode: "table", yearly: { rows: [...] } }, got mode: "${parsed.mode ?? "missing"}"`);
+    },
+    catch: (e) => new StdinParseError({
+      message: `Failed to parse piped input: ${e instanceof Error ? e.message : String(e)}`,
+    }),
+  });
+
+type ResolveError = CraPayrollError | StdinParseError;
 
 /** Resolve the per-paycheck rows using the priority chain: flag > pipe > config. */
 const resolveRows = (
   config: WishFarmConfig,
   options: { discretionary?: number; periods?: number; stdin?: string },
-): Effect.Effect<{ rows: readonly CraPayPeriodRow[]; ppm: number }, CraPayrollError> => {
+): Effect.Effect<{ rows: readonly CraPayPeriodRow[]; ppm: number }, ResolveError, CraPayrollService> => {
   const periodsPerYear = options.periods ?? config.periodsPerYear ?? 24;
   const ppm = periodsPerYear / 12;
 
@@ -90,10 +97,10 @@ const resolveRows = (
 
   // 2. Pipe wins over config
   if (options.stdin) {
-    const parsed = parseStdinRows(options.stdin);
-    if (parsed) {
-      return Effect.succeed({ rows: parsed, ppm });
-    }
+    return pipe(
+      parseStdinRows(options.stdin),
+      Effect.map((rows) => ({ rows, ppm })),
+    );
   }
 
   // 3. Config: static discretionary
@@ -113,46 +120,23 @@ const resolveRows = (
 /** Summary plan (monthly allocation view). */
 export const createPlan = (
   options: PlanOptions,
-): Effect.Effect<WishFarmPlan, ConfigError | CraPayrollError> =>
-  pipe(
-    loadConfig(options.configPath),
-    Effect.flatMap((config) =>
-      pipe(
-        resolveRows(config, options),
-        Effect.map(({ rows, ppm }) => {
-          const expensesPortion = config.monthlyExpenses / ppm;
-          const annualTakeHome = rows.reduce(
-            (sum, r) => sum + (r.netPay - r.rrspMatched - r.rrspUnmatched), 0,
-          );
-          const monthlyNetPay = Math.round(annualTakeHome / 12 * 100) / 100;
-          const monthlyDiscretionary = Math.round((monthlyNetPay - config.monthlyExpenses) * 100) / 100;
-          const income = {
-            monthlyNetPay,
-            monthlyExpenses: config.monthlyExpenses,
-            monthlyDiscretionary,
-            annualDiscretionary: Math.round(monthlyDiscretionary * 12 * 100) / 100,
-          };
-          const items = configToWishItems(config);
-          return options.strategy === "sequential"
-            ? allocateSequential(income, items)
-            : allocateProportional(income, items);
-        }),
-      ),
-    ),
-  );
+): Effect.Effect<WishFarmPlan, ConfigError | ResolveError, ConfigService | CraPayrollService> =>
+  Effect.gen(function* () {
+    const config = yield* loadConfig(options.configPath);
+    const { rows } = yield* resolveRows(config, options);
+    const income = buildIncomeProfileFromRows(rows, config.monthlyExpenses);
+    const items = configToWishItems(config);
+    return options.strategy === "sequential"
+      ? allocateSequential(income, items)
+      : allocateProportional(income, items);
+  });
 
 /** Per-paycheck plan (sequential allocation across actual paychecks). */
 export const createPaycheckPlan = (
   options: PaycheckPlanOptions,
-): Effect.Effect<PaycheckPlan, ConfigError | CraPayrollError> =>
-  pipe(
-    loadConfig(options.configPath),
-    Effect.flatMap((config) =>
-      pipe(
-        resolveRows(config, options),
-        Effect.map(({ rows, ppm }) =>
-          allocatePaychecks(rows, config.monthlyExpenses, configToWishItems(config), ppm),
-        ),
-      ),
-    ),
-  );
+): Effect.Effect<PaycheckPlan, ConfigError | ResolveError, ConfigService | CraPayrollService> =>
+  Effect.gen(function* () {
+    const config = yield* loadConfig(options.configPath);
+    const { rows, ppm } = yield* resolveRows(config, options);
+    return allocatePaychecks(rows, config.monthlyExpenses, configToWishItems(config), ppm);
+  });

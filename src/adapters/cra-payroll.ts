@@ -3,7 +3,7 @@
  * Shells out to `cra-payroll --json` and parses the structured output.
  */
 import { execFile } from "node:child_process";
-import { Effect, pipe } from "effect";
+import { Effect, pipe, Data, Context, Layer } from "effect";
 import { Schema } from "effect";
 import {
   CraMonthlyOutput,
@@ -14,12 +14,11 @@ import {
 
 // ── Error types ─────────────────────────────────────────
 
-export class CraPayrollError {
-  readonly _tag = "CraPayrollError";
-  constructor(readonly message: string) {}
-}
+export class CraPayrollError extends Data.TaggedError("CraPayrollError")<{
+  readonly message: string;
+}> {}
 
-// ── Build CLI args from options ─────────────────────────
+// ── Options ─────────────────────────────────────────────
 
 export interface CraPayrollOptions {
   readonly salary?: number;
@@ -29,6 +28,18 @@ export interface CraPayrollOptions {
   readonly rrspMatch?: number;
   readonly rrspUnmatched?: number;
 }
+
+// ── Service interface ───────────────────────────────────
+
+export class CraPayrollService extends Context.Tag("CraPayrollService")<
+  CraPayrollService,
+  {
+    readonly getMonthlyAverages: (opts: CraPayrollOptions) => Effect.Effect<CraPayrollAverages, CraPayrollError>;
+    readonly getPayPeriodRows: (opts: CraPayrollOptions) => Effect.Effect<readonly CraPayPeriodRow[], CraPayrollError>;
+  }
+>() {}
+
+// ── Live implementation ─────────────────────────────────
 
 const buildBaseArgs = (opts: CraPayrollOptions): string[] => {
   const args: string[] = ["--json"];
@@ -40,8 +51,6 @@ const buildBaseArgs = (opts: CraPayrollOptions): string[] => {
   if (opts.rrspUnmatched !== undefined) args.push("--rrsp-unmatched", String(opts.rrspUnmatched));
   return args;
 };
-
-// ── Execute cra-payroll ─────────────────────────────────
 
 const execCraPayroll = (args: readonly string[]): Effect.Effect<string, CraPayrollError> =>
   Effect.tryPromise({
@@ -55,39 +64,44 @@ const execCraPayroll = (args: readonly string[]): Effect.Effect<string, CraPayro
           }
         });
       }),
-    catch: (e) => new CraPayrollError(e instanceof Error ? e.message : String(e)),
+    catch: (e) => new CraPayrollError({ message: e instanceof Error ? e.message : String(e) }),
   });
-
-// ── Parse JSON output ───────────────────────────────────
 
 const parseMonthlyOutput = (raw: string): Effect.Effect<CraPayrollAverages, CraPayrollError> =>
   pipe(
-    Schema.decodeUnknown(CraMonthlyOutput)(JSON.parse(raw)),
+    Effect.try({ try: () => JSON.parse(raw) as unknown, catch: (e) => new CraPayrollError({ message: `Invalid JSON from cra-payroll: ${e}` }) }),
+    Effect.flatMap((parsed) => Schema.decodeUnknown(CraMonthlyOutput)(parsed)),
     Effect.map((output) => output.averages),
-    Effect.mapError((e) => new CraPayrollError(`Failed to parse cra-payroll monthly output: ${String(e)}`)),
+    Effect.mapError((e) => new CraPayrollError({ message: `Failed to parse cra-payroll monthly output: ${String(e)}` })),
   );
 
 const parseTableOutput = (raw: string): Effect.Effect<readonly CraPayPeriodRow[], CraPayrollError> =>
   pipe(
-    Schema.decodeUnknown(CraTableOutput)(JSON.parse(raw)),
+    Effect.try({ try: () => JSON.parse(raw) as unknown, catch: (e) => new CraPayrollError({ message: `Invalid JSON from cra-payroll: ${e}` }) }),
+    Effect.flatMap((parsed) => Schema.decodeUnknown(CraTableOutput)(parsed)),
     Effect.map((output) => output.yearly.rows),
-    Effect.mapError((e) => new CraPayrollError(`Failed to parse cra-payroll table output: ${String(e)}`)),
+    Effect.mapError((e) => new CraPayrollError({ message: `Failed to parse cra-payroll table output: ${String(e)}` })),
   );
 
-// ── Public API ──────────────────────────────────────────
+export const CraPayrollServiceLive = Layer.succeed(CraPayrollService, {
+  getMonthlyAverages: (opts) =>
+    pipe(
+      execCraPayroll([...buildBaseArgs(opts), "--monthly"]),
+      Effect.flatMap(parseMonthlyOutput),
+    ),
+  getPayPeriodRows: (opts) =>
+    pipe(
+      execCraPayroll([...buildBaseArgs(opts), "--table"]),
+      Effect.flatMap(parseTableOutput),
+    ),
+});
 
-export const getMonthlyAverages = (
-  opts: CraPayrollOptions,
-): Effect.Effect<CraPayrollAverages, CraPayrollError> =>
-  pipe(
-    execCraPayroll([...buildBaseArgs(opts), "--monthly"]),
-    Effect.flatMap(parseMonthlyOutput),
-  );
+// ── Convenience for backward compat ─────────────────────
 
 export const getPayPeriodRows = (
   opts: CraPayrollOptions,
-): Effect.Effect<readonly CraPayPeriodRow[], CraPayrollError> =>
+): Effect.Effect<readonly CraPayPeriodRow[], CraPayrollError, CraPayrollService> =>
   pipe(
-    execCraPayroll([...buildBaseArgs(opts), "--table"]),
-    Effect.flatMap(parseTableOutput),
+    CraPayrollService,
+    Effect.flatMap((svc) => svc.getPayPeriodRows(opts)),
   );
