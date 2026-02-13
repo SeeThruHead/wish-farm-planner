@@ -159,12 +159,21 @@ export const allocateProportional = (
 // ── Per-paycheck hybrid allocation ──────────────────────
 
 /**
- * Hybrid allocation: items with `months` set get a fixed per-paycheck
- * amount pulled off the top each paycheck (timed items). Whatever
- * discretionary remains goes to the sequential queue in priority order.
+ * Hybrid allocation: sequential items first, timed items use slack.
  *
- * When a timed item is fully funded, its per-paycheck allocation is
- * freed up and flows into the sequential pool.
+ * Strategy:
+ *   1. Sequential items get funded first from each paycheck (greedy).
+ *   2. Whatever remains goes to timed items.
+ *   3. Timed items have a deadline (months * periodsPerMonth).
+ *      They are guaranteed to be funded because after all sequential
+ *      items are done, 100% of discretionary flows to them.
+ *
+ * The trick: before giving money to a sequential item, we check that
+ * timed items can still be fully funded with the remaining paychecks.
+ * If not, timed items take priority to avoid missing their deadline.
+ *
+ * After all sequential items are funded, overflow accelerates the
+ * highest-priority unfunded timed item.
  */
 export const allocatePaychecks = (
   rows: readonly CraPayPeriodRow[],
@@ -180,53 +189,79 @@ export const allocatePaychecks = (
   const timedItems = sorted.filter((i) => i.months !== undefined);
   const sequentialItems = sorted.filter((i) => i.months === undefined);
 
-  // Per-paycheck allocation for timed items
-  const timedPerPaycheck = new Map<string, number>();
+  // Compute deadline paycheck for each timed item
+  const deadlines = new Map<string, number>();
   for (const item of timedItems) {
-    timedPerPaycheck.set(item.name, round2(item.cost / (item.months! * periodsPerMonth)));
+    deadlines.set(item.name, Math.ceil(item.months! * periodsPerMonth));
   }
 
   // Mutable running totals
   const saved = new Map<string, number>();
   for (const item of sorted) saved.set(item.name, 0);
 
-  // Track which timed items are done
   const timedDone = new Set<string>();
-
   let currentSeqIdx = 0;
 
-  const paychecks: PaycheckAllocation[] = rows.map((row) => {
+  // Pre-compute conservative per-paycheck discretionary for feasibility checks.
+  // Use the minimum discretionary across all remaining paychecks as a safe estimate.
+  const discretionaries = rows.map((row) =>
+    round2(Math.max(0, row.netPay - row.rrspMatched - row.rrspUnmatched - expensesPortion)),
+  );
+
+  /**
+   * Check if timed items can still be funded given remaining paychecks,
+   * assuming each future paycheck contributes at most `budget` to timed items.
+   */
+  const timedFeasible = (fromPaycheck: number, reservedThisPaycheck: number): boolean => {
+    let totalTimedNeeded = 0;
+    for (const item of timedItems) {
+      if (timedDone.has(item.name)) continue;
+      const remaining = item.cost - saved.get(item.name)!;
+      if (remaining <= 0) continue;
+      totalTimedNeeded += remaining;
+    }
+
+    // How much budget is available for timed items from this paycheck onward?
+    // This paycheck: discretionary - reservedThisPaycheck
+    // Future paychecks: full discretionary (conservative: assume all seq items done)
+    let availableForTimed = Math.max(0, discretionaries[fromPaycheck] - reservedThisPaycheck);
+    for (let i = fromPaycheck + 1; i < rows.length; i++) {
+      availableForTimed += discretionaries[i];
+    }
+
+    return availableForTimed >= totalTimedNeeded - 0.01;
+  };
+
+  const mergeOrPush = (
+    assignments: CategoryAssignment[],
+    category: string,
+    amount: number,
+    funded: boolean,
+    runningTotal: number,
+  ) => {
+    const existing = assignments.find((a) => a.category === category);
+    if (existing) {
+      const merged: CategoryAssignment = {
+        category,
+        amount: round2(existing.amount + amount),
+        funded,
+        runningTotal,
+      };
+      assignments[assignments.indexOf(existing)] = merged;
+    } else {
+      assignments.push({ category, amount, funded, runningTotal });
+    }
+  };
+
+  const paychecks: PaycheckAllocation[] = rows.map((row, rowIdx) => {
     const takeHome = round2(row.netPay - row.rrspMatched - row.rrspUnmatched);
     const discretionary = round2(takeHome - expensesPortion);
     const assignments: CategoryAssignment[] = [];
 
     let remaining = Math.max(0, discretionary);
 
-    // 1. Timed items get their fixed slice first
-    for (const item of timedItems) {
-      if (timedDone.has(item.name)) continue;
-      if (remaining <= 0.005) break;
-
-      const alreadySaved = saved.get(item.name)!;
-      const needed = round2(item.cost - alreadySaved);
-      if (needed <= 0) {
-        timedDone.add(item.name);
-        continue;
-      }
-
-      const perPaycheck = timedPerPaycheck.get(item.name)!;
-      const amount = round2(Math.min(remaining, Math.min(perPaycheck, needed)));
-      const newTotal = round2(alreadySaved + amount);
-      saved.set(item.name, newTotal);
-      remaining = round2(remaining - amount);
-
-      const funded = newTotal >= item.cost - 0.005;
-      if (funded) timedDone.add(item.name);
-
-      assignments.push({ category: item.name, amount, funded, runningTotal: newTotal });
-    }
-
-    // 2. Remaining goes to sequential items
+    // 1. Try to give money to sequential items first
+    let seqSpent = 0;
     let idx = currentSeqIdx;
     while (remaining > 0.005 && idx < sequentialItems.length) {
       const item = sequentialItems[idx];
@@ -238,10 +273,18 @@ export const allocatePaychecks = (
         continue;
       }
 
-      const amount = round2(Math.min(remaining, needed));
+      const wouldSpend = round2(Math.min(remaining, needed));
+
+      // Check: if we spend this on sequential, can timed items still make it?
+      if (!timedFeasible(rowIdx, seqSpent + wouldSpend)) {
+        break; // Can't afford it — timed items need the money
+      }
+
+      const amount = wouldSpend;
       const newTotal = round2(alreadySaved + amount);
       saved.set(item.name, newTotal);
       remaining = round2(remaining - amount);
+      seqSpent += amount;
 
       const funded = newTotal >= item.cost - 0.005;
       assignments.push({ category: item.name, amount, funded, runningTotal: newTotal });
@@ -252,14 +295,17 @@ export const allocatePaychecks = (
       }
     }
 
-    // 3. Overflow accelerates highest-priority unfunded timed item
+    // 2. Remaining goes to timed items (highest priority first)
     for (const item of timedItems) {
       if (remaining <= 0.005) break;
       if (timedDone.has(item.name)) continue;
 
       const alreadySaved = saved.get(item.name)!;
       const needed = round2(item.cost - alreadySaved);
-      if (needed <= 0) continue;
+      if (needed <= 0) {
+        timedDone.add(item.name);
+        continue;
+      }
 
       const amount = round2(Math.min(remaining, needed));
       const newTotal = round2(alreadySaved + amount);
@@ -269,22 +315,10 @@ export const allocatePaychecks = (
       const funded = newTotal >= item.cost - 0.005;
       if (funded) timedDone.add(item.name);
 
-      // Merge with existing assignment for this item in this paycheck
-      const existing = assignments.find((a) => a.category === item.name);
-      if (existing) {
-        const merged: CategoryAssignment = {
-          category: item.name,
-          amount: round2(existing.amount + amount),
-          funded,
-          runningTotal: newTotal,
-        };
-        assignments[assignments.indexOf(existing)] = merged;
-      } else {
-        assignments.push({ category: item.name, amount, funded, runningTotal: newTotal });
-      }
+      mergeOrPush(assignments, item.name, amount, funded, newTotal);
     }
 
-    // 4. True leftover (everything funded)
+    // 3. True leftover (everything funded)
     if (remaining > 0.005) {
       assignments.push({
         category: "Unallocated",
