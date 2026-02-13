@@ -79,6 +79,8 @@ export interface WishItem {
   readonly cost: number;
   readonly priority: number;        // 1 = highest
   readonly months?: number;         // if set, spread over this many months (timed); if blank, sequential
+  readonly deferrable?: boolean;    // timed only: if false, always pays fixed amount (not deferred by sequential). default true
+  readonly after?: readonly string[];  // don't start until ALL named items are funded
 }
 
 export interface IncomeProfile {
@@ -132,6 +134,8 @@ export const WishItemSchema = Schema.Struct({
   cost: Schema.Number,
   priority: Schema.Number,
   months: Schema.optional(Schema.Number),
+  deferrable: Schema.optional(Schema.Boolean),
+  after: Schema.optional(Schema.Array(Schema.String)),
 });
 
 export const WishFarmConfigSchema = Schema.Struct({

@@ -319,6 +319,73 @@ describe("allocatePaychecks", () => {
     expect(timedAssignment!.amount).toBeGreaterThan(basePerPaycheck);
   });
 
+  test("after: item is blocked until deps are funded", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "First", cost: 5000, priority: 1 },
+      { name: "Second", cost: 3000, priority: 2, after: ["First"] },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    // Second should not appear until First is funded
+    let firstFunded = false;
+    for (const pc of plan.paychecks) {
+      const secondAssignment = pc.assignments.find((a) => a.category === "Second");
+      if (!firstFunded) {
+        const firstAssignment = pc.assignments.find((a) => a.category === "First");
+        if (firstAssignment?.funded) {
+          // Second can start in the SAME paycheck (rollover from First)
+          firstFunded = true;
+        } else {
+          expect(secondAssignment).toBeUndefined();
+        }
+      }
+    }
+    expect(firstFunded).toBe(true);
+  });
+
+  test("after: supports multiple deps", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "A", cost: 1000, priority: 1 },
+      { name: "B", cost: 1000, priority: 2 },
+      { name: "C", cost: 1000, priority: 3, after: ["A", "B"] },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    const fundedAt = new Map<string, number>();
+    for (const pc of plan.paychecks) {
+      for (const a of pc.assignments) {
+        if (a.funded && !fundedAt.has(a.category)) {
+          fundedAt.set(a.category, pc.period);
+        }
+      }
+    }
+
+    expect(fundedAt.has("C")).toBe(true);
+    expect(fundedAt.get("C")!).toBeGreaterThanOrEqual(fundedAt.get("A")!);
+    expect(fundedAt.get("C")!).toBeGreaterThanOrEqual(fundedAt.get("B")!);
+  });
+
+  test("deferrable false: timed item always gets fixed allocation", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "Locked", cost: 24000, priority: 1, months: 12, deferrable: false },
+      { name: "SeqItem", cost: 500, priority: 2 },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    // Every paycheck before Locked is funded should have Locked at ~1000
+    const expectedPerPaycheck = 24000 / 24; // 1000
+    for (const pc of plan.paychecks) {
+      const locked = pc.assignments.find((a) => a.category === "Locked");
+      if (locked && !locked.funded) {
+        // Should be at least the fixed rate (might get overflow too)
+        expect(locked.amount).toBeGreaterThanOrEqual(expectedPerPaycheck - 1);
+      }
+    }
+  });
+
   test("no Unallocated while timed items remain unfunded", () => {
     const rows = makeRows(24);
     // Cost high enough that it won't be fully funded by overflow alone

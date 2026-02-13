@@ -90,15 +90,21 @@ const renderLegend = (wishes: readonly WishItem[]): string => {
   const timed = wishes.filter((w) => w.months !== undefined);
   const sequential = wishes.filter((w) => w.months === undefined);
   const lines: string[] = [];
+
+  const afterTag = (w: WishItem) =>
+    w.after && w.after.length > 0 ? `  [after: ${w.after.join(", ")}]` : "";
+  const deferrableTag = (w: WishItem) =>
+    w.deferrable === false ? "  (locked)" : "";
+
   if (timed.length > 0) {
-    lines.push("  Timed (fixed monthly from each paycheck):");
+    lines.push("  Timed:");
     for (const w of timed)
-      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}  over ${w.months} months  ($${money(w.cost / w.months!).padStart(8)}/mo)`);
+      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}  over ${w.months} months  ($${money(w.cost / w.months!).padStart(8)}/mo)${deferrableTag(w)}${afterTag(w)}`);
   }
   if (sequential.length > 0) {
-    lines.push("  Sequential (funded in order from remaining):");
+    lines.push("  Sequential:");
     for (const w of sequential)
-      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}`);
+      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}${afterTag(w)}`);
   }
   return lines.join("\n");
 };
@@ -186,6 +192,8 @@ export const paycheckPlanToJson = (plan: PaycheckPlan): object => ({
   wishes: plan.wishes.map((w) => ({
     name: w.name, cost: w.cost, priority: w.priority,
     ...(w.months !== undefined ? { months: w.months } : {}),
+    ...(w.deferrable !== undefined ? { deferrable: w.deferrable } : {}),
+    ...(w.after && w.after.length > 0 ? { after: w.after } : {}),
     strategy: w.months !== undefined ? "timed" : "sequential",
   })),
   paychecks: plan.paychecks.map((pc) => ({
