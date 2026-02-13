@@ -97,6 +97,7 @@ export interface PaycheckAllocation {
   readonly expensesPortion: number;  // monthly expenses / paychecks-per-month
   readonly discretionary: number;    // takeHome - expensesPortion
   readonly assignments: readonly CategoryAssignment[];
+  readonly notes: readonly string[];  // optimizer explanations for this paycheck
 }
 
 /** A single category receiving money in a paycheck */

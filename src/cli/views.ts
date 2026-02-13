@@ -129,7 +129,15 @@ const paycheckHeader = (): string => {
 export const renderPaycheckTable = (plan: PaycheckPlan): string => {
   const header = paycheckHeader();
   const TW = Math.max(W, header.length + 30);
-  const rows = plan.paychecks.map(paycheckRow);
+
+  // Build rows with inline notes
+  const rowLines: string[] = [];
+  for (const pc of plan.paychecks) {
+    rowLines.push(paycheckRow(pc));
+    for (const note of pc.notes) {
+      rowLines.push(`         ↳ ${note}`);
+    }
+  }
 
   // Summary: when each item is funded
   const funded: string[] = [];
@@ -160,7 +168,7 @@ Paycheck Allocation
 ${line("═", TW)}
 ${header}
 ${line("─", TW)}
-${rows.join("\n")}
+${rowLines.join("\n")}
 ${line("═", TW)}
 
 Funding Timeline
@@ -201,6 +209,7 @@ export const paycheckPlanToJson = (plan: PaycheckPlan): object => ({
     takeHome: pc.takeHome,
     expensesPortion: pc.expensesPortion,
     discretionary: pc.discretionary,
+    notes: pc.notes,
     assignments: pc.assignments.map((a) => ({
       category: a.category,
       amount: a.amount,

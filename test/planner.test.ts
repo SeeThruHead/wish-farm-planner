@@ -386,6 +386,51 @@ describe("allocatePaychecks", () => {
     }
   });
 
+  test("notes: sequential funded before timed explains no deadline impact", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "SeqItem", cost: 500, priority: 1 },
+      { name: "TimedItem", cost: 20000, priority: 2, months: 12 },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    // The paycheck where SeqItem is funded should have a note about TimedItem
+    const seqFundedPc = plan.paychecks.find((pc) =>
+      pc.assignments.some((a) => a.category === "SeqItem" && a.funded),
+    );
+    expect(seqFundedPc).toBeDefined();
+    expect(seqFundedPc!.notes.some((n) => n.includes("SeqItem") && n.includes("TimedItem") && n.includes("no impact"))).toBe(true);
+  });
+
+  test("notes: timed item funded early shows overflow note", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "SeqItem", cost: 500, priority: 1 },
+      { name: "TimedItem", cost: 10000, priority: 2, months: 12 },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    const timedFundedPc = plan.paychecks.find((pc) =>
+      pc.assignments.some((a) => a.category === "TimedItem" && a.funded),
+    );
+    expect(timedFundedPc).toBeDefined();
+    expect(timedFundedPc!.notes.some((n) => n.includes("early") && n.includes("overflow"))).toBe(true);
+  });
+
+  test("notes: after dep shows deps met note", () => {
+    const rows = makeRows(24);
+    const items: WishItem[] = [
+      { name: "First", cost: 500, priority: 1 },
+      { name: "Second", cost: 500, priority: 2, after: ["First"] },
+    ];
+    const plan = allocatePaychecks(rows, 2000, items, 2);
+
+    const hasDepNote = plan.paychecks.some((pc) =>
+      pc.notes.some((n) => n.includes("Second") && n.includes("deps met") && n.includes("First")),
+    );
+    expect(hasDepNote).toBe(true);
+  });
+
   test("no Unallocated while timed items remain unfunded", () => {
     const rows = makeRows(24);
     // Cost high enough that it won't be fully funded by overflow alone

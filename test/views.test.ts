@@ -61,6 +61,7 @@ const PAYCHECK_PLAN: PaycheckPlan = {
         { category: "Mac Studio", amount: 2999, funded: true, runningTotal: 2999 },
         { category: "DAC/Amp", amount: 509.01, funded: false, runningTotal: 509.01 },
       ],
+      notes: [],
     },
     {
       period: 2,
@@ -71,6 +72,7 @@ const PAYCHECK_PLAN: PaycheckPlan = {
         { category: "DAC/Amp", amount: 389.99, funded: true, runningTotal: 899 },
         { category: "Unallocated", amount: 3118.02, funded: false, runningTotal: 3118.02 },
       ],
+      notes: [],
     },
   ],
 };

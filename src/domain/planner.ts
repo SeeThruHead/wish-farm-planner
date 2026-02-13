@@ -201,6 +201,7 @@ export const allocatePaychecks = (
   const saved = new Map<string, number>();
   for (const item of sorted) saved.set(item.name, 0);
   const done = new Set<string>();
+  const firstContrib = new Set<string>();
   let currentSeqIdx = 0;
 
   const discretionaries = rows.map((row) =>
@@ -284,6 +285,7 @@ export const allocatePaychecks = (
     const takeHome = round2(row.netPay - row.rrspMatched - row.rrspUnmatched);
     const discretionary = round2(takeHome - expensesPortion);
     const assignments: CategoryAssignment[] = [];
+    const notes: string[] = [];
 
     let remaining = Math.max(0, discretionary);
 
@@ -292,6 +294,12 @@ export const allocatePaychecks = (
       if (done.has(item.name)) continue;
       if (!depsReady(item)) continue;
       if (remaining <= 0.005) break;
+
+      if (!firstContrib.has(item.name)) {
+        firstContrib.add(item.name);
+        const rate = fixedPerPaycheck.get(item.name)!;
+        notes.push(`${item.name}: locked at $${rate.toLocaleString("en-CA", { minimumFractionDigits: 2 })}/paycheck — not deferred for sequential items`);
+      }
 
       const perPaycheck = fixedPerPaycheck.get(item.name)!;
       const cap = Math.min(perPaycheck, item.cost - saved.get(item.name)!);
@@ -321,7 +329,15 @@ export const allocatePaychecks = (
       const wouldSpend = round2(Math.min(remaining, needed));
 
       if (!timedFeasible(rowIdx, seqSpent + wouldSpend)) {
+        notes.push(`${item.name}: paused — timed items need the budget to hit their deadlines`);
         break;
+      }
+
+      if (!firstContrib.has(item.name)) {
+        firstContrib.add(item.name);
+        if (item.after && item.after.length > 0) {
+          notes.push(`${item.name}: deps met (${item.after.join(", ")}), now funding`);
+        }
       }
 
       const spent = fundItem(item, wouldSpend, assignments);
@@ -329,6 +345,13 @@ export const allocatePaychecks = (
       seqSpent += spent;
 
       if (done.has(item.name)) {
+        // Note why this was prioritized over timed items
+        const deferredTimed = deferrableTimedItems.filter((t) => !done.has(t.name) && depsReady(t));
+        if (deferredTimed.length > 0) {
+          const names = deferredTimed.map((t) => t.name);
+          notes.push(`${item.name}: funded before ${names.join(", ")} — no impact on their deadlines`);
+        }
+
         idx++;
         if (idx > currentSeqIdx) currentSeqIdx = idx;
       }
@@ -340,8 +363,29 @@ export const allocatePaychecks = (
       if (done.has(item.name)) continue;
       if (!depsReady(item)) continue;
 
+      if (!firstContrib.has(item.name)) {
+        firstContrib.add(item.name);
+        if (item.after && item.after.length > 0) {
+          notes.push(`${item.name}: deps met (${item.after.join(", ")}), now funding`);
+        }
+        const deadline = deadlines.get(item.name)!;
+        const behindBy = round2(item.cost * (rowIdx + 1) / deadline - saved.get(item.name)!);
+        if (behindBy > 0.01) {
+          notes.push(`${item.name}: deferred while sequential items were funded — catching up now`);
+        }
+      }
+
+      const beforeSaved = saved.get(item.name)!;
       const spent = fundItem(item, remaining, assignments);
       remaining = round2(remaining - spent);
+
+      if (done.has(item.name)) {
+        const deadline = deadlines.get(item.name)!;
+        const earlyBy = deadline - (rowIdx + 1);
+        if (earlyBy > 0) {
+          notes.push(`${item.name}: funded ${earlyBy} paycheck${earlyBy > 1 ? "s" : ""} early — overflow from completed items`);
+        }
+      }
     }
 
     // 4. Overflow to non-deferrable timed items (accelerate beyond fixed rate)
@@ -352,6 +396,14 @@ export const allocatePaychecks = (
 
       const spent = fundItem(item, remaining, assignments);
       remaining = round2(remaining - spent);
+
+      if (done.has(item.name)) {
+        const deadline = deadlines.get(item.name)!;
+        const earlyBy = deadline - (rowIdx + 1);
+        if (earlyBy > 0) {
+          notes.push(`${item.name}: funded ${earlyBy} paycheck${earlyBy > 1 ? "s" : ""} early — overflow from completed items`);
+        }
+      }
     }
 
     // 5. True leftover
@@ -364,7 +416,7 @@ export const allocatePaychecks = (
       });
     }
 
-    return { period: row.period, takeHome, expensesPortion, discretionary, assignments };
+    return { period: row.period, takeHome, expensesPortion, discretionary, assignments, notes };
   });
 
   return { income, paychecks, wishes: sorted };
