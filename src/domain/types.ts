@@ -97,7 +97,6 @@ export interface PaycheckAllocation {
   readonly expensesPortion: number;  // monthly expenses / paychecks-per-month
   readonly discretionary: number;    // takeHome - expensesPortion
   readonly assignments: readonly CategoryAssignment[];
-  readonly notes: readonly string[];  // optimizer explanations for this paycheck
 }
 
 /** A single category receiving money in a paycheck */
@@ -106,6 +105,7 @@ export interface CategoryAssignment {
   readonly amount: number;
   readonly funded: boolean;          // true if this paycheck completes the item
   readonly runningTotal: number;     // cumulative saved toward this item after this paycheck
+  readonly flags: string;            // icon flags e.g. "⚡", "🔓⏩", "⏫+11"
 }
 
 export interface PaycheckPlan {

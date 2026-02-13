@@ -58,10 +58,9 @@ const PAYCHECK_PLAN: PaycheckPlan = {
       expensesPortion: 2500,
       discretionary: 3508.01,
       assignments: [
-        { category: "Mac Studio", amount: 2999, funded: true, runningTotal: 2999 },
-        { category: "DAC/Amp", amount: 509.01, funded: false, runningTotal: 509.01 },
+        { category: "Mac Studio", amount: 2999, funded: true, runningTotal: 2999, flags: "" },
+        { category: "DAC/Amp", amount: 509.01, funded: false, runningTotal: 509.01, flags: "" },
       ],
-      notes: [],
     },
     {
       period: 2,
@@ -69,10 +68,9 @@ const PAYCHECK_PLAN: PaycheckPlan = {
       expensesPortion: 2500,
       discretionary: 3508.01,
       assignments: [
-        { category: "DAC/Amp", amount: 389.99, funded: true, runningTotal: 899 },
-        { category: "Unallocated", amount: 3118.02, funded: false, runningTotal: 3118.02 },
+        { category: "DAC/Amp", amount: 389.99, funded: true, runningTotal: 899, flags: "" },
+        { category: "Unallocated", amount: 3118.02, funded: false, runningTotal: 3118.02, flags: "" },
       ],
-      notes: [],
     },
   ],
 };
@@ -107,7 +105,7 @@ describe("renderFullReport", () => {
   test("includes both sections", () => {
     const output = renderFullReport(PLAN);
     expect(output).toContain("Income Summary");
-    expect(output).toContain("Wish Farm Plan");
+    expect(output).toContain("Item");
   });
 });
 
@@ -134,8 +132,8 @@ describe("renderPaycheckTable", () => {
   test("shows funding timeline", () => {
     const output = renderPaycheckTable(PAYCHECK_PLAN);
     expect(output).toContain("Funding Timeline");
-    expect(output).toContain("funded by paycheck #1");
-    expect(output).toContain("funded by paycheck #2");
+    expect(output).toContain("paycheck #1");
+    expect(output).toContain("paycheck #2");
   });
 
   test("includes income summary", () => {

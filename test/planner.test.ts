@@ -386,7 +386,7 @@ describe("allocatePaychecks", () => {
     }
   });
 
-  test("notes: sequential funded before timed explains no deadline impact", () => {
+  test("flags: sequential funded before timed gets ⚡", () => {
     const rows = makeRows(24);
     const items: WishItem[] = [
       { name: "SeqItem", cost: 500, priority: 1 },
@@ -394,15 +394,13 @@ describe("allocatePaychecks", () => {
     ];
     const plan = allocatePaychecks(rows, 2000, items, 2);
 
-    // The paycheck where SeqItem is funded should have a note about TimedItem
-    const seqFundedPc = plan.paychecks.find((pc) =>
-      pc.assignments.some((a) => a.category === "SeqItem" && a.funded),
-    );
-    expect(seqFundedPc).toBeDefined();
-    expect(seqFundedPc!.notes.some((n) => n.includes("SeqItem") && n.includes("prioritized") && n.includes("no deadline impact"))).toBe(true);
+    const seqAssignment = plan.paychecks.flatMap((pc) => pc.assignments)
+      .find((a) => a.category === "SeqItem" && a.funded);
+    expect(seqAssignment).toBeDefined();
+    expect(seqAssignment!.flags).toContain("⚡");
   });
 
-  test("notes: timed item funded early shows overflow note", () => {
+  test("flags: timed item funded early gets ⏫", () => {
     const rows = makeRows(24);
     const items: WishItem[] = [
       { name: "SeqItem", cost: 500, priority: 1 },
@@ -410,14 +408,13 @@ describe("allocatePaychecks", () => {
     ];
     const plan = allocatePaychecks(rows, 2000, items, 2);
 
-    const timedFundedPc = plan.paychecks.find((pc) =>
-      pc.assignments.some((a) => a.category === "TimedItem" && a.funded),
-    );
-    expect(timedFundedPc).toBeDefined();
-    expect(timedFundedPc!.notes.some((n) => n.includes("early") && n.includes("overflow"))).toBe(true);
+    const timedAssignment = plan.paychecks.flatMap((pc) => pc.assignments)
+      .find((a) => a.category === "TimedItem" && a.funded);
+    expect(timedAssignment).toBeDefined();
+    expect(timedAssignment!.flags).toContain("⏫");
   });
 
-  test("notes: after dep shows deps met note", () => {
+  test("flags: after dep gets 🔓", () => {
     const rows = makeRows(24);
     const items: WishItem[] = [
       { name: "First", cost: 500, priority: 1 },
@@ -425,10 +422,10 @@ describe("allocatePaychecks", () => {
     ];
     const plan = allocatePaychecks(rows, 2000, items, 2);
 
-    const hasDepNote = plan.paychecks.some((pc) =>
-      pc.notes.some((n) => n.includes("Second") && n.includes("unlocked") && n.includes("First")),
-    );
-    expect(hasDepNote).toBe(true);
+    const secondAssignment = plan.paychecks.flatMap((pc) => pc.assignments)
+      .find((a) => a.category === "Second");
+    expect(secondAssignment).toBeDefined();
+    expect(secondAssignment!.flags).toContain("🔓");
   });
 
   test("no Unallocated while timed items remain unfunded", () => {

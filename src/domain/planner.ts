@@ -252,9 +252,10 @@ export const allocatePaychecks = (
         amount: round2(existing.amount + amount),
         funded,
         runningTotal,
+        flags: existing.flags,
       };
     } else {
-      assignments.push({ category, amount, funded, runningTotal });
+      assignments.push({ category, amount, funded, runningTotal, flags: "" });
     }
   };
 
@@ -285,7 +286,11 @@ export const allocatePaychecks = (
     const takeHome = round2(row.netPay - row.rrspMatched - row.rrspUnmatched);
     const discretionary = round2(takeHome - expensesPortion);
     const assignments: CategoryAssignment[] = [];
-    const notes: string[] = [];
+    const itemFlags = new Map<string, string[]>();
+    const addFlag = (name: string, flag: string) => {
+      if (!itemFlags.has(name)) itemFlags.set(name, []);
+      itemFlags.get(name)!.push(flag);
+    };
 
     let remaining = Math.max(0, discretionary);
 
@@ -297,8 +302,7 @@ export const allocatePaychecks = (
 
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
-        const rate = fixedPerPaycheck.get(item.name)!;
-        notes.push(`${item.name} locked $${rate.toLocaleString("en-CA", { minimumFractionDigits: 2 })}/pay (non-deferrable)`);
+        addFlag(item.name, "🔒");
       }
 
       const perPaycheck = fixedPerPaycheck.get(item.name)!;
@@ -330,14 +334,14 @@ export const allocatePaychecks = (
       const wouldSpend = round2(Math.min(remaining, needed));
 
       if (!timedFeasible(rowIdx, seqSpent + wouldSpend)) {
-        notes.push(`${item.name} paused — timed deadlines need budget`);
+        addFlag(item.name, "⏸");
         break;
       }
 
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
         if (item.after && item.after.length > 0) {
-          notes.push(`${item.name} unlocked (${item.after.join(", ")} done)`);
+          addFlag(item.name, "🔓");
         }
       }
 
@@ -351,11 +355,11 @@ export const allocatePaychecks = (
         if (idx > currentSeqIdx) currentSeqIdx = idx;
       }
     }
-    // Emit one combined note for all sequential items funded this paycheck
+    // Flag sequential items prioritized over active timed items
     if (seqFundedThisPay.length > 0) {
       const deferredTimed = deferrableTimedItems.filter((t) => !done.has(t.name) && depsReady(t));
       if (deferredTimed.length > 0) {
-        notes.push(`${seqFundedThisPay.join(", ")} prioritized — no deadline impact`);
+        for (const name of seqFundedThisPay) addFlag(name, "⚡");
       }
     }
 
@@ -368,12 +372,12 @@ export const allocatePaychecks = (
       if (!firstContrib.has(item.name)) {
         firstContrib.add(item.name);
         if (item.after && item.after.length > 0) {
-          notes.push(`${item.name} unlocked (${item.after.join(", ")} done)`);
+          addFlag(item.name, "🔓");
         }
         const deadline = deadlines.get(item.name)!;
         const behindBy = round2(item.cost * (rowIdx + 1) / deadline - saved.get(item.name)!);
         if (behindBy > 0.01) {
-          notes.push(`${item.name} deferred, now catching up`);
+          addFlag(item.name, "⏩");
         }
       }
 
@@ -384,7 +388,7 @@ export const allocatePaychecks = (
         const deadline = deadlines.get(item.name)!;
         const earlyBy = deadline - (rowIdx + 1);
         if (earlyBy > 0) {
-          notes.push(`${item.name} ${earlyBy}pay early (overflow)`);
+          addFlag(item.name, `⏫+${earlyBy}`);
         }
       }
     }
@@ -402,7 +406,7 @@ export const allocatePaychecks = (
         const deadline = deadlines.get(item.name)!;
         const earlyBy = deadline - (rowIdx + 1);
         if (earlyBy > 0) {
-          notes.push(`${item.name} ${earlyBy}pay early (overflow)`);
+          addFlag(item.name, `⏫+${earlyBy}`);
         }
       }
     }
@@ -414,10 +418,17 @@ export const allocatePaychecks = (
         amount: round2(remaining),
         funded: false,
         runningTotal: round2(remaining),
+        flags: "",
       });
     }
 
-    return { period: row.period, takeHome, expensesPortion, discretionary, assignments, notes };
+    // Apply collected flags to assignments
+    const flagged = assignments.map((a) => {
+      const f = itemFlags.get(a.category);
+      return f ? { ...a, flags: f.join("") } : a;
+    });
+
+    return { period: row.period, takeHome, expensesPortion, discretionary, assignments: flagged };
   });
 
   return { income, paychecks, wishes: sorted };

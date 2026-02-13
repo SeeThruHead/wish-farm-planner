@@ -2,6 +2,7 @@
  * Terminal output rendering for the wish farm plan.
  * Every render function has a corresponding JSON serializer.
  */
+import Table from "cli-table3";
 import type {
   WishFarmPlan,
   WishPlan,
@@ -15,153 +16,175 @@ import type {
 const money = (n: number): string =>
   n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const line = (ch: string, w: number): string => ch.repeat(w);
-const pad = (s: string, w: number): string => s.padStart(w);
-
 const months = (n: number): string =>
   n === Infinity ? "never" : n === 1 ? "1 month" : `${n} months`;
 
 const dateStr = (d: Date): string =>
   d.getFullYear() > 9000 ? "never" : d.toLocaleDateString("en-CA", { year: "numeric", month: "short" });
 
-const W = 72;
+// ═══════════════════════════════════════════════════════
+// Income Summary
+// ═══════════════════════════════════════════════════════
+
+export const renderIncomeSummary = (income: IncomeProfile): string => {
+  const t = new Table({ style: { head: [], border: [] } });
+  t.push(
+    [{ colSpan: 2, content: "Income Summary", hAlign: "center" }],
+    ["Monthly Take-Home (after RRSP)", `$${money(income.monthlyNetPay)}`],
+    ["Monthly Expenses", `-$${money(income.monthlyExpenses)}`],
+    ["Monthly Discretionary", `$${money(income.monthlyDiscretionary)}`],
+    ["Annual Discretionary", `$${money(income.annualDiscretionary)}`],
+  );
+  return t.toString();
+};
 
 // ═══════════════════════════════════════════════════════
 // Summary Plan (monthly allocation)
 // ═══════════════════════════════════════════════════════
 
-export const renderIncomeSummary = (income: IncomeProfile): string => `
-Income Summary
-${line("═", W)}
-  Monthly Take-Home (after RRSP):   $${pad(money(income.monthlyNetPay), 10)}
-  Monthly Expenses:                -$${pad(money(income.monthlyExpenses), 10)}
-${line("─", W)}
-  Monthly Discretionary:            $${pad(money(income.monthlyDiscretionary), 10)}
-  Annual Discretionary:             $${pad(money(income.annualDiscretionary), 10)}
-${line("═", W)}`;
-
-const wishRow = (w: WishPlan): string => {
-  const name = w.item.name.padEnd(24);
-  const cost = ("$" + money(w.item.cost)).padStart(12);
-  const alloc = ("$" + money(w.monthlyAllocation)).padStart(10);
-  const time = months(w.monthsToSave).padStart(10);
-  const target = dateStr(w.targetDate).padStart(10);
-  return `  ${name} ${cost} ${alloc} ${time} ${target}`;
-};
-
-const summaryHeader = (): string => {
-  const name = "Item".padEnd(24);
-  const cost = "Cost".padStart(12);
-  const alloc = "$/month".padStart(10);
-  const time = "Months".padStart(10);
-  const target = "Target".padStart(10);
-  return `  ${name} ${cost} ${alloc} ${time} ${target}`;
-};
-
 export const renderWishTable = (plan: WishFarmPlan): string => {
-  const header = summaryHeader();
-  const rows = plan.wishes.map(wishRow);
-  return `
-Wish Farm Plan
-${line("═", W)}
-${header}
-${line("─", W)}
-${rows.join("\n")}
-${line("─", W)}
-  Total Monthly Saving:  $${pad(money(plan.totalMonthlyWishSaving), 10)}
-  Unallocated Monthly:   $${pad(money(plan.unallocatedMonthly), 10)}
-${line("═", W)}`;
+  const t = new Table({
+    head: ["Item", "Cost", "$/month", "Months", "Target"],
+    style: { head: [], border: [] },
+    colAligns: ["left", "right", "right", "right", "right"],
+  });
+  for (const w of plan.wishes) {
+    t.push([
+      w.item.name,
+      `$${money(w.item.cost)}`,
+      `$${money(w.monthlyAllocation)}`,
+      months(w.monthsToSave),
+      dateStr(w.targetDate),
+    ]);
+  }
+  t.push(
+    [],
+    [{ colSpan: 2, content: "Total Monthly Saving" }, { colSpan: 3, content: `$${money(plan.totalMonthlyWishSaving)}` }],
+    [{ colSpan: 2, content: "Unallocated Monthly" }, { colSpan: 3, content: `$${money(plan.unallocatedMonthly)}` }],
+  );
+  return t.toString();
 };
 
 export const renderFullReport = (plan: WishFarmPlan): string =>
-  renderIncomeSummary(plan.income) + "\n" + renderWishTable(plan);
+  renderIncomeSummary(plan.income) + "\n\n" + renderWishTable(plan);
 
 // ═══════════════════════════════════════════════════════
 // Paycheck Plan (per-paycheck allocation table)
 // ═══════════════════════════════════════════════════════
 
-const assignmentStr = (a: CategoryAssignment): string => {
-  const flag = a.funded ? " ✓" : "";
-  return `$${money(a.amount)} → ${a.category}${flag}`;
+const assignmentCell = (a: CategoryAssignment): string => {
+  const check = a.funded ? " ✓" : "";
+  const icons = a.flags ? ` ${a.flags}` : "";
+  return `$${money(a.amount)} → ${a.category}${check}${icons}`;
 };
+
+// Keep the old function name for tests that import it
+export const assignmentStr = assignmentCell;
 
 /** Render a legend showing which items are timed vs sequential. */
 const renderLegend = (wishes: readonly WishItem[]): string => {
   const timed = wishes.filter((w) => w.months !== undefined);
   const sequential = wishes.filter((w) => w.months === undefined);
-  const lines: string[] = [];
 
   const afterTag = (w: WishItem) =>
     w.after && w.after.length > 0 ? `  [after: ${w.after.join(", ")}]` : "";
   const deferrableTag = (w: WishItem) =>
     w.deferrable === false ? "  (locked)" : "";
 
+  const t = new Table({ style: { head: [], border: [] } });
+  t.push([{ colSpan: 4, content: "Allocation Strategy", hAlign: "center" }]);
+
   if (timed.length > 0) {
-    lines.push("  Timed:");
-    for (const w of timed)
-      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}  over ${w.months} months  ($${money(w.cost / w.months!).padStart(8)}/mo)${deferrableTag(w)}${afterTag(w)}`);
+    t.push([{ colSpan: 4, content: "Timed", hAlign: "left" }]);
+    for (const w of timed) {
+      t.push([
+        `  ${w.name}`,
+        `$${money(w.cost)}`,
+        `${w.months}mo ($${money(w.cost / w.months!)}/mo)`,
+        `${deferrableTag(w)}${afterTag(w)}`.trim() || "",
+      ]);
+    }
   }
   if (sequential.length > 0) {
-    lines.push("  Sequential:");
-    for (const w of sequential)
-      lines.push(`    ${w.name.padEnd(24)} $${money(w.cost).padStart(10)}${afterTag(w)}`);
+    t.push([{ colSpan: 4, content: "Sequential", hAlign: "left" }]);
+    for (const w of sequential) {
+      t.push([
+        `  ${w.name}`,
+        `$${money(w.cost)}`,
+        "",
+        afterTag(w).trim() || "",
+      ]);
+    }
   }
-  return lines.join("\n");
+  return t.toString();
 };
 
-const paycheckRow = (pc: PaycheckAllocation): string => {
-  const period = String(pc.period).padStart(3);
-  const cats = pc.assignments.map(assignmentStr).join("  │  ");
-  const noteStr = pc.notes.length > 0 ? `  ← ${pc.notes.join("; ")}` : "";
-  return `  ${period}  ${cats}${noteStr}`;
-};
-
-const paycheckHeader = (): string => {
-  return `    #  Allocations`;
+const iconLegend = (): string => {
+  const t = new Table({
+    style: { head: [], border: [] },
+    colAligns: ["center", "left"],
+  });
+  t.push(
+    ["⚡", "prioritized over timed — no deadline impact"],
+    ["🔓", "dependency met, now active"],
+    ["⏩", "was deferred, catching up"],
+    ["⏫", "funded early via overflow"],
+    ["🔒", "locked rate (non-deferrable)"],
+    ["⏸", "paused — timed deadline needs budget"],
+  );
+  return t.toString();
 };
 
 export const renderPaycheckTable = (plan: PaycheckPlan): string => {
-  const header = paycheckHeader();
-  const TW = Math.max(W, header.length + 30);
+  // Find the max number of assignment slots across all paychecks
+  const maxSlots = Math.max(...plan.paychecks.map((pc) => pc.assignments.length));
 
-  const rowLines = plan.paychecks.map(paycheckRow);
+  const head = ["#", ...Array.from({ length: maxSlots }, (_, i) => `Slot ${i + 1}`)];
+  const colAligns: Array<"left" | "right" | "center"> = ["right", ...Array.from({ length: maxSlots }, () => "left" as const)];
 
-  // Summary: when each item is funded
-  const funded: string[] = [];
+  const t = new Table({
+    head,
+    style: { head: [], border: [] },
+    colAligns,
+  });
+
+  for (const pc of plan.paychecks) {
+    const cells: string[] = [String(pc.period)];
+    for (let i = 0; i < maxSlots; i++) {
+      cells.push(i < pc.assignments.length ? assignmentCell(pc.assignments[i]) : "");
+    }
+    t.push(cells);
+  }
+
+  // Funding timeline
+  const timelineTable = new Table({ style: { head: [], border: [] } });
+  timelineTable.push([{ colSpan: 2, content: "Funding Timeline", hAlign: "center" }]);
   const seen = new Set<string>();
   for (const pc of plan.paychecks) {
     for (const a of pc.assignments) {
       if (a.funded && !seen.has(a.category)) {
         seen.add(a.category);
-        funded.push(`  ✓ ${a.category.padEnd(24)} funded by paycheck #${pc.period}`);
+        timelineTable.push([`✓ ${a.category}`, `paycheck #${pc.period}`]);
       }
     }
   }
+  for (const w of plan.wishes) {
+    if (!seen.has(w.name)) {
+      timelineTable.push([`✗ ${w.name}`, "not funded this year"]);
+    }
+  }
 
-  const unfunded = plan.wishes
-    .filter((w) => !seen.has(w.name))
-    .map((w) => `  ✗ ${w.name.padEnd(24)} not funded this year`);
-
-  const legend = renderLegend(plan.wishes);
-
-  return `${renderIncomeSummary(plan.income)}
-
-Allocation Strategy
-${line("─", W)}
-${legend}
-${line("─", W)}
-
-Paycheck Allocation
-${line("═", TW)}
-${header}
-${line("─", TW)}
-${rowLines.join("\n")}
-${line("═", TW)}
-
-Funding Timeline
-${line("─", W)}
-${[...funded, ...unfunded].join("\n")}
-${line("─", W)}`;
+  return [
+    renderIncomeSummary(plan.income),
+    "",
+    renderLegend(plan.wishes),
+    "",
+    iconLegend(),
+    "",
+    t.toString(),
+    "",
+    timelineTable.toString(),
+  ].join("\n");
 };
 
 // ═══════════════════════════════════════════════════════
@@ -196,12 +219,12 @@ export const paycheckPlanToJson = (plan: PaycheckPlan): object => ({
     takeHome: pc.takeHome,
     expensesPortion: pc.expensesPortion,
     discretionary: pc.discretionary,
-    notes: pc.notes,
     assignments: pc.assignments.map((a) => ({
       category: a.category,
       amount: a.amount,
       funded: a.funded,
       runningTotal: a.runningTotal,
+      ...(a.flags ? { flags: a.flags } : {}),
     })),
   })),
 });
