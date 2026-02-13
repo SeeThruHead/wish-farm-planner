@@ -52,6 +52,51 @@ export const buildIncomeProfileFromRows = (
   };
 };
 
+/** Build income profile from a static discretionary amount per period. */
+export const buildIncomeProfileStatic = (
+  discretionaryPerPeriod: number,
+  monthlyExpenses: number,
+  periodsPerYear: number,
+): IncomeProfile => {
+  const ppm = periodsPerYear / 12;
+  const monthlyDiscretionary = round2(discretionaryPerPeriod * ppm);
+  const monthlyNetPay = round2(monthlyDiscretionary + monthlyExpenses);
+  return {
+    monthlyNetPay,
+    monthlyExpenses,
+    monthlyDiscretionary,
+    annualDiscretionary: round2(monthlyDiscretionary * 12),
+  };
+};
+
+/** Generate synthetic per-paycheck rows from a static discretionary amount. */
+export const buildStaticRows = (
+  discretionaryPerPeriod: number,
+  monthlyExpenses: number,
+  periodsPerYear: number,
+): readonly CraPayPeriodRow[] => {
+  const ppm = periodsPerYear / 12;
+  const expensesPortion = round2(monthlyExpenses / ppm);
+  const netPay = round2(discretionaryPerPeriod + expensesPortion);
+  return Array.from({ length: periodsPerYear }, (_, i) => ({
+    period: i + 1,
+    grossIncome: netPay,
+    rrspMatched: 0,
+    rrspUnmatched: 0,
+    rrspEmployer: 0,
+    federalTax: 0,
+    provincialTax: 0,
+    cpp: 0,
+    cpp2: 0,
+    ei: 0,
+    totalDeductions: 0,
+    netPay,
+    cumulativeCpp: 0,
+    cumulativeCpp2: 0,
+    cumulativeEi: 0,
+  }));
+};
+
 // ── Helpers ─────────────────────────────────────────────
 
 /** Sort wishes by priority (ascending = highest priority first). */

@@ -142,6 +142,11 @@ export const WishItemSchema = Schema.Struct({
 export const WishFarmConfigSchema = Schema.Struct({
   monthlyExpenses: Schema.Number,
   wishes: Schema.Array(WishItemSchema),
+  /** Static mode: provide discretionary per pay period directly (no cra-payroll needed) */
+  discretionaryPerPeriod: Schema.optional(Schema.Number),
+  /** Number of pay periods per year (default 24 = semi-monthly) */
+  periodsPerYear: Schema.optional(Schema.Number),
+  /** CRA mode: shell out to cra-payroll for accurate Canadian payroll deductions */
   craPayrollArgs: Schema.optional(Schema.Struct({
     salary: Schema.optional(Schema.Number),
     province: Schema.optional(Schema.String),

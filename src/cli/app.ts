@@ -1,5 +1,8 @@
 /**
  * CLI definition using @effect/cli.
+ *
+ * Input priority (highest wins):
+ *   --discretionary flag > piped stdin > config file
  */
 import { Command, Options } from "@effect/cli";
 import { Effect, pipe } from "effect";
@@ -25,6 +28,34 @@ const jsonOption = Options.boolean("json").pipe(
   Options.withDefault(false),
 );
 
+const discretionaryOption = Options.integer("discretionary").pipe(
+  Options.withAlias("d"),
+  Options.withDescription("Fixed discretionary amount per pay period (skips cra-payroll)"),
+  Options.optional,
+);
+
+const periodsOption = Options.integer("periods").pipe(
+  Options.withAlias("p"),
+  Options.withDescription("Pay periods per year (default: 24 = semi-monthly)"),
+  Options.optional,
+);
+
+// ── Read stdin if piped ─────────────────────────────────
+
+const readStdin = (): Effect.Effect<string | undefined> =>
+  Effect.tryPromise({
+    try: async () => {
+      if (process.stdin.isTTY) return undefined;
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk);
+      }
+      const text = Buffer.concat(chunks).toString("utf-8").trim();
+      return text.length > 0 ? text : undefined;
+    },
+    catch: () => undefined as any,
+  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
 // ── Plan Command (monthly summary) ──────────────────────
 
 const strategyOption = Options.choice("strategy", ["sequential", "proportional"]).pipe(
@@ -35,13 +66,19 @@ const strategyOption = Options.choice("strategy", ["sequential", "proportional"]
 
 const planCommand = Command.make(
   "plan",
-  { config: configOption, strategy: strategyOption, json: jsonOption },
-  ({ config, strategy, json }) =>
+  { config: configOption, strategy: strategyOption, json: jsonOption, discretionary: discretionaryOption, periods: periodsOption },
+  ({ config, strategy, json, discretionary, periods }) =>
     pipe(
-      createPlan({
-        configPath: config._tag === "Some" ? config.value : undefined,
-        strategy: strategy as AllocationStrategy,
-      }),
+      readStdin(),
+      Effect.flatMap((stdin) =>
+        createPlan({
+          configPath: config._tag === "Some" ? config.value : undefined,
+          strategy: strategy as AllocationStrategy,
+          discretionary: discretionary._tag === "Some" ? discretionary.value : undefined,
+          periods: periods._tag === "Some" ? periods.value : undefined,
+          stdin,
+        }),
+      ),
       Effect.map((plan) =>
         json ? renderJson(summaryPlanToJson(plan)) : renderFullReport(plan),
       ),
@@ -59,12 +96,18 @@ const planCommand = Command.make(
 
 const paychecksCommand = Command.make(
   "paychecks",
-  { config: configOption, json: jsonOption },
-  ({ config, json }) =>
+  { config: configOption, json: jsonOption, discretionary: discretionaryOption, periods: periodsOption },
+  ({ config, json, discretionary, periods }) =>
     pipe(
-      createPaycheckPlan({
-        configPath: config._tag === "Some" ? config.value : undefined,
-      }),
+      readStdin(),
+      Effect.flatMap((stdin) =>
+        createPaycheckPlan({
+          configPath: config._tag === "Some" ? config.value : undefined,
+          discretionary: discretionary._tag === "Some" ? discretionary.value : undefined,
+          periods: periods._tag === "Some" ? periods.value : undefined,
+          stdin,
+        }),
+      ),
       Effect.map((plan) =>
         json ? renderJson(paycheckPlanToJson(plan)) : renderPaycheckTable(plan),
       ),
@@ -86,9 +129,13 @@ const paychecksCommand = Command.make(
 
 export const command = Command.make("wish-farm-planner").pipe(
   Command.withDescription(
-    "Plan your discretionary spending. Uses cra-payroll to determine " +
-      "take-home pay, subtracts your monthly expenses, and allocates the " +
-      "remaining money to your wish farm items.",
+    "Plan your discretionary spending with a YNAB-style wish farm.\n\n" +
+    "Input priority (highest wins):\n" +
+    "  --discretionary flag  >  piped stdin  >  config file\n\n" +
+    "Examples:\n" +
+    "  wish-farm-planner paychecks                              # uses config file\n" +
+    "  wish-farm-planner paychecks --discretionary 3500          # static $3,500/period\n" +
+    "  cra-payroll --json --table | wish-farm-planner paychecks  # pipe from cra-payroll",
   ),
   Command.withSubcommands([planCommand, paychecksCommand]),
 );
