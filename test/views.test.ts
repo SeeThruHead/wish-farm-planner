@@ -129,16 +129,17 @@ describe("renderPaycheckTable", () => {
     expect(output).toContain("✓");
   });
 
-  test("shows funding timeline", () => {
+  test("shows funding timeline in items table", () => {
     const output = renderPaycheckTable(PAYCHECK_PLAN);
-    expect(output).toContain("Funding Timeline");
-    expect(output).toContain("paycheck #1");
-    expect(output).toContain("paycheck #2");
+    expect(output).toContain("✓ #1");
+    expect(output).toContain("✓ #2");
   });
 
-  test("includes income summary", () => {
+  test("includes overview with take-home and discretionary", () => {
     const output = renderPaycheckTable(PAYCHECK_PLAN);
-    expect(output).toContain("Income Summary");
+    expect(output).toContain("Take-Home");
+    expect(output).toContain("Discretionary");
+    expect(output).toContain("Annual");
   });
 });
 
